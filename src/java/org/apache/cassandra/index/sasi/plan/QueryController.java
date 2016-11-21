@@ -22,6 +22,10 @@ import java.util.concurrent.TimeUnit;
 
 import com.google.common.collect.Sets;
 
+import org.apache.cassandra.io.sstable.SSTable;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+
 import org.apache.cassandra.config.CFMetaData;
 import org.apache.cassandra.db.*;
 import org.apache.cassandra.db.filter.DataLimits;
@@ -46,6 +50,8 @@ import org.apache.cassandra.utils.Pair;
 
 public class QueryController
 {
+    private static final Logger logger = LoggerFactory.getLogger(QueryController.class);
+
     private final long executionQuota;
     private final long executionStart;
 
@@ -137,21 +143,43 @@ public class QueryController
                                                 ? RangeUnionIterator.<Long, Token>builder()
                                                 : RangeIntersectionIterator.<Long, Token>builder();
 
-        List<RangeIterator<Long, Token>> perIndexUnions = new ArrayList<>();
+        List<RangeIterator<Long, Token>> indexes = new ArrayList<>();
+        long minCount = Long.MAX_VALUE;
 
+        // First execute the search on every index.
         for (Map.Entry<Expression, Set<SSTableIndex>> e : getView(op, expressions).entrySet())
         {
             @SuppressWarnings("resource") // RangeIterators are closed by releaseIndexes
             RangeIterator<Long, Token> index = TermIterator.build(e.getKey(), e.getValue());
 
             if (index == null)
-                continue;
+                minCount = 0;
+            else if (index.getCount() < minCount)
+                minCount = index.getCount();
 
-            builder.add(index);
-            perIndexUnions.add(index);
+            indexes.add(index);
         }
 
-        resources.put(expressions, perIndexUnions);
+        for (RangeIterator<Long, Token> index : indexes) {
+            if (op == OperationType.AND) {
+                long tokenCount = index == null ? 0 : index.getCount();
+                float ratio = minCount == 0 ? 0 : (float) minCount / tokenCount;
+                // If we are doing intersections between indexes we can enable some
+                // additional optimizations.
+
+                // See CASSANDRA-12915 for details. OnDiskIndexIterator can be rather
+                // inefficient and in some cases it is faster to rely on post-filtering.
+                logger.debug("{}: count: {}, ratio: {}", index, tokenCount, ratio);
+                if (tokenCount > 100000 && ratio < 0.01d) {
+                    logger.debug("Skipping");
+                    continue;
+                }
+            }
+            if (index != null)
+                builder.add(index);
+        }
+
+        resources.put(expressions, indexes);
         return builder;
     }
 
@@ -186,6 +214,10 @@ public class QueryController
         Pair<Expression, Set<SSTableIndex>> primary = (op == OperationType.AND) ? calculatePrimary(expressions) : null;
 
         Map<Expression, Set<SSTableIndex>> indexes = new HashMap<>();
+
+        logger.debug("Expressions: {}, Op: {}", expressions, op);
+        if (primary != null)
+            logger.debug("Primary: {} {}", primary.left, primary.right);
         for (Expression e : expressions)
         {
             // NO_EQ and non-index column query should only act as FILTER BY for satisfiedBy(Row) method
@@ -217,6 +249,7 @@ public class QueryController
 
             indexes.put(e, readers);
         }
+        logger.debug("Final view: {}", indexes);
 
         return indexes;
     }
@@ -225,9 +258,12 @@ public class QueryController
     {
         Expression expression = null;
         Set<SSTableIndex> primaryIndexes = Collections.emptySet();
+        int primaryIndexScore = 0;
 
         for (Expression e : expressions)
         {
+            int indexScore = 0;
+
             if (!e.isIndexed())
                 continue;
 
@@ -236,7 +272,17 @@ public class QueryController
                 continue;
 
             Set<SSTableIndex> indexes = applyScope(view.match(e));
-            if (primaryIndexes.size() > indexes.size())
+            logger.debug("Expression: {}, Indexes: {}", e, indexes);
+            for (SSTableIndex index: indexes) {
+                // Use the number of keys as a score to select the index with
+                // the higher cardinality as the "primary" index.
+                SSTableReader sstable = index.getSSTable();
+                indexScore += sstable.estimatedKeys();
+                logger.debug("{}: bytes: {} keys: {}", index.getPath(),
+                        sstable.bytesOnDisk(), sstable.estimatedKeys());
+            }
+            logger.debug("score: {}", indexScore);
+            if (expression == null || indexScore > primaryIndexScore)
             {
                 primaryIndexes = indexes;
                 expression = e;
