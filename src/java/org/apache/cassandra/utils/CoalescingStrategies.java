@@ -95,8 +95,12 @@ public class CoalescingStrategies
         while (timer - (now = System.nanoTime()) > nanos / 16);
     }
 
-    private static boolean maybeSleep(int messages, long averageGap, long maxCoalesceWindow, Parker parker)
+    private static boolean maybeSleep(int messages, int maxItems, long averageGap, long maxCoalesceWindow, Parker parker)
     {
+        // Do not sleep if there are still items in the backlog.
+        if (messages >= maxItems)
+            return false;
+
         // only sleep if we can expect to double the number of messages we're sending in the time interval
         long sleep = messages * averageGap;
         if (sleep > maxCoalesceWindow)
@@ -348,7 +352,7 @@ public class CoalescingStrategies
             debugGap(averageGap);
 
             int count = out.size();
-            if (maybeSleep(count, averageGap, maxCoalesceWindow, parker))
+            if (maybeSleep(count, maxItems, averageGap, maxCoalesceWindow, parker))
             {
                 input.drainTo(out, maxItems - out.size());
                 int prevCount = count;
@@ -427,7 +431,7 @@ public class CoalescingStrategies
 
             debugGap(average);
 
-            maybeSleep(out.size(), average, maxCoalesceWindow, parker);
+            maybeSleep(out.size(), maxItems, average, maxCoalesceWindow, parker);
 
             input.drainTo(out, maxItems - out.size());
             for (int ii = 1; ii < out.size(); ii++)
