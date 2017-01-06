@@ -89,7 +89,7 @@ public class CompactionBench extends CQLTester
     {
         CQLTester.prepareServer();
         keyspace = createKeyspace("CREATE KEYSPACE %s with replication = { 'class' : 'SimpleStrategy', 'replication_factor' : 1 } and durable_writes = false");
-        table = createTable(keyspace, "CREATE TABLE %s ( userid bigint, picid bigint, commentid bigint, PRIMARY KEY(userid, picid))");
+        table = createTable(keyspace, "CREATE TABLE %s ( userid bigint, picid bigint, commentid bigint, PRIMARY KEY(userid, picid)) WITH default_time_to_live = 3600");
         execute("use "+keyspace+";");
         writeStatement = "INSERT INTO "+table+"(userid,picid,commentid)VALUES(?,?,?)";
         readStatement = "SELECT * from "+table+" limit 100";

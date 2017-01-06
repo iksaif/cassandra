@@ -95,39 +95,43 @@ public class StreamingHistogram
         {
             mi = new long[]{m};
             bin.put(p, mi);
-            // if bin size exceeds maximum bin size then trim down to max size
-            while (bin.size() > maxBinSize)
-            {
-                // find points p1, p2 which have smallest difference
-                Iterator<Number> keys = bin.keySet().iterator();
-                double p1 = keys.next().doubleValue();
-                double p2 = keys.next().doubleValue();
-                double smallestDiff = p2 - p1;
-                double q1 = p1, q2 = p2;
-                while (keys.hasNext())
-                {
-                    p1 = p2;
-                    p2 = keys.next().doubleValue();
-                    double diff = p2 - p1;
-                    if (diff < smallestDiff)
-                    {
-                        smallestDiff = diff;
-                        q1 = p1;
-                        q2 = p2;
-                    }
-                }
-                // merge those two
-                long[] a1 = bin.remove(q1);
-                long[] a2 = bin.remove(q2);
-                long k1 = a1[0];
-                long k2 = a2[0];
-
-                a1[0] += k2;
-                bin.put((q1 * k1 + q2 * k2) / (k1 + k2), a1);
-            }
+            compact();
         }
     }
 
+    private void compact()
+    {
+        // if bin size exceeds maximum bin size then trim down to max size
+        while (bin.size() > maxBinSize)
+        {
+            // find points p1, p2 which have smallest difference
+            Iterator<Number> keys = bin.keySet().iterator();
+            double p1 = keys.next().doubleValue();
+            double p2 = keys.next().doubleValue();
+            double smallestDiff = p2 - p1;
+            double q1 = p1, q2 = p2;
+            while (keys.hasNext())
+            {
+                p1 = p2;
+                p2 = keys.next().doubleValue();
+                double diff = p2 - p1;
+                if (diff < smallestDiff)
+                {
+                    smallestDiff = diff;
+                    q1 = p1;
+                    q2 = p2;
+                }
+            }
+            // merge those two
+            long[] a1 = bin.remove(q1);
+            long[] a2 = bin.remove(q2);
+            long k1 = a1[0];
+            long k2 = a2[0];
+
+            a1[0] += k2;
+            bin.put((q1 * k1 + q2 * k2) / (k1 + k2), a1);
+        }
+    }
     /**
      * Merges given histogram with this histogram.
      *
@@ -140,6 +144,7 @@ public class StreamingHistogram
 
         for (Map.Entry<Number, long[]> entry : other.getAsMap().entrySet())
             update(entry.getKey(), entry.getValue()[0]);
+        compact();
     }
 
     /**
@@ -179,6 +184,7 @@ public class StreamingHistogram
 
     public Map<Number, long[]> getAsMap()
     {
+        compact();
         return Collections.unmodifiableMap(bin);
     }
 
@@ -186,6 +192,7 @@ public class StreamingHistogram
     {
         public void serialize(StreamingHistogram histogram, DataOutputPlus out) throws IOException
         {
+            histogram.compact();
             out.writeInt(histogram.maxBinSize);
             Map<Number, long[]> entries = histogram.getAsMap();
             out.writeInt(entries.size());
@@ -211,6 +218,7 @@ public class StreamingHistogram
 
         public long serializedSize(StreamingHistogram histogram)
         {
+            histogram.compact();
             long size = TypeSizes.sizeof(histogram.maxBinSize);
             Map<Number, long[]> entries = histogram.getAsMap();
             size += TypeSizes.sizeof(entries.size());
