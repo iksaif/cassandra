@@ -71,6 +71,13 @@ try:
 except ImportError:
     pass
 
+prompt_toolkit = None
+try:
+    if sys.stdin.isatty():
+        import prompt_toolkit
+except ImportError:
+    pass
+
 CQL_LIB_PREFIX = 'cassandra-driver-internal-only-'
 
 CASSANDRA_PATH = os.path.join(os.path.dirname(os.path.realpath(__file__)), '..')
@@ -174,6 +181,9 @@ from cqlshlib.formatting import (DEFAULT_DATE_FORMAT, DEFAULT_NANOTIME_FORMAT,
                                  format_by_type, formatter_for)
 from cqlshlib.tracing import print_trace, print_trace_session
 from cqlshlib.util import get_file_encoding_bomsize, trim_if_present
+if prompt_toolkit:
+    from cqlshlib import prompt_toolkit_utils
+
 
 DEFAULT_HOST = '127.0.0.1'
 DEFAULT_PORT = 9042
@@ -417,6 +427,28 @@ class FrozenType(cassandra.cqltypes._ParameterizedType):
         return subtype.to_binary(val, protocol_version)
 
 
+class ReadlineHistory(object):
+
+    def __init__(self, filename):
+        self.filename = filename
+
+    def load(self):
+        try:
+            readline.read_history_file(self.filename)
+        except IOError:
+            pass
+        delims = readline.get_completer_delims()
+        delims.replace("'", "")
+        delims += '.'
+        readline.set_completer_delims(delims)
+
+    def save(self):
+        try:
+            readline.write_history_file(self.filename)
+        except IOError:
+            pass
+
+
 class Shell(cmd.Cmd):
     custom_prompt = os.getenv('CQLSH_PROMPT', '')
     if custom_prompt is not '':
@@ -535,6 +567,20 @@ class Shell(cmd.Cmd):
         self.empty_lines = 0
         self.statement_error = False
         self.single_statement = single_statement
+        if prompt_toolkit:
+            self.history = prompt_toolkit_utils.History(HISTORY)
+        elif readline:
+            self.history = ReadlineHistory(HISTORY)
+        else:
+            self.history = None
+
+    def init_history(self):
+        if self.history is not None:
+            self.history.load()
+
+    def save_history(self):
+        if self.history is not None:
+            self.history.save()
 
     @property
     def is_using_utf8(self):
@@ -807,6 +853,25 @@ class Shell(cmd.Cmd):
 
     @contextmanager
     def prepare_loop(self):
+        if prompt_toolkit:
+            return self.prepare_loop_prompt()
+        else:
+            return self.prepare_loop_readline()
+
+    def prepare_loop_prompt(self):
+        from prompt_toolkit.auto_suggest import AutoSuggestFromHistory
+
+        self.lexer = prompt_toolkit_utils.Lexer()
+        self.auto_suggest = AutoSuggestFromHistory()
+        self.enable_history_search = False
+        self.completer = prompt_toolkit_utils.Completer(
+            self, cqlruleset, debug_completion=debug_completion)
+        try:
+            yield
+        finally:
+            pass
+
+    def prepare_loop_readline(self):
         readline = None
         if self.tty and self.completekey:
             try:
@@ -831,7 +896,17 @@ class Shell(cmd.Cmd):
                 readline.set_completer(old_completer)
 
     def get_input_line(self, prompt=''):
-        if self.tty:
+        if prompt_toolkit:
+            self.lastcmd = prompt_toolkit.prompt(
+                unicode(prompt),
+                lexer=self.lexer,
+                history=self.history,
+                auto_suggest=self.auto_suggest,
+                enable_history_search=self.enable_history_search,
+                completer=self.completer,
+                get_bottom_toolbar_tokens=prompt_toolkit_utils.get_bottom_toolbar_tokens(self))
+            line = self.lastcmd
+        elif self.tty:
             try:
                 self.lastcmd = raw_input(prompt).decode(self.encoding)
             except UnicodeDecodeError:
@@ -2302,30 +2377,9 @@ def setup_cqldocs(cqlmodule):
     cqldocs = cqlmodule.cqldocs
 
 
-def init_history():
-    if readline is not None:
-        try:
-            readline.read_history_file(HISTORY)
-        except IOError:
-            pass
-        delims = readline.get_completer_delims()
-        delims.replace("'", "")
-        delims += '.'
-        readline.set_completer_delims(delims)
-
-
-def save_history():
-    if readline is not None:
-        try:
-            readline.write_history_file(HISTORY)
-        except IOError:
-            pass
-
-
 def main(options, hostname, port):
     setup_cqlruleset(options.cqlmodule)
     setup_cqldocs(options.cqlmodule)
-    init_history()
     csv.field_size_limit(options.field_size_limit)
 
     if options.file is None:
@@ -2407,8 +2461,9 @@ def main(options, hostname, port):
     if options.debug:
         shell.debug = True
 
+    shell.init_history()
     shell.cmdloop()
-    save_history()
+    shell.save_history()
     batch_mode = options.file or options.execute
     if batch_mode and shell.statement_error:
         sys.exit(2)
