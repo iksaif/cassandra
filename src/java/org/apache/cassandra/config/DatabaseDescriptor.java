@@ -718,6 +718,12 @@ public class DatabaseDescriptor
         {
             throw new ConfigurationException("Error configuring back-pressure strategy: " + conf.back_pressure_strategy, ex);
         }
+
+        if (conf.otc_coalescing_enough_coalesced_messages > 128)
+            throw new ConfigurationException("otc_coalescing_enough_coalesced_messages must be smaller than 128", false);
+
+        if (conf.otc_coalescing_enough_coalesced_messages <= 0)
+            throw new ConfigurationException("otc_coalescing_enough_coalesced_messages must be positive", false);
     }
 
     private static String storagedirFor(String type)
@@ -2259,6 +2265,16 @@ public class DatabaseDescriptor
     public static int getWindowsTimerInterval()
     {
         return conf.windows_timer_interval;
+    }
+
+    public static int getOtcCoalescingEnoughCoalescedMessages()
+    {
+        return conf.otc_coalescing_enough_coalesced_messages;
+    }
+
+    public static void setOtcCoalescingEnoughCoalescedMessages(int otc_coalescing_enough_coalesced_messages)
+    {
+        conf.otc_coalescing_enough_coalesced_messages = otc_coalescing_enough_coalesced_messages;
     }
 
     public static long getPreparedStatementsCacheSizeMB()
