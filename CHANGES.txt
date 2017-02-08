@@ -37,6 +37,7 @@
  * More fixes to the TokenAllocator (CASSANDRA-12990)
  * NoReplicationTokenAllocator should work with zero replication factor (CASSANDRA-12983)
 Merged from 3.0:
+ * Coalescing strategy sleeps too much and shouldn't be enabled by default (CASSANDRA-13090)
  * Fix UPDATE queries with empty IN restrictions (CASSANDRA-13152)
  * Fix handling of partition with partition-level deletion plus
    live rows in sstabledump (CASSANDRA-13177)
