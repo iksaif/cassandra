@@ -111,12 +111,14 @@ public class RangeUnionIterator<K extends Comparable<K>, D extends CombinedValue
 
         while (!ranges.isEmpty())
         {
-            if (ranges.peek().getCurrent().compareTo(nextToken) >= 0)
+            RangeIterator<K, D> head = ranges.peek();
+
+            if (!head.isEmpty() && head.getCurrent().compareTo(nextToken) >= 0)
                 break;
 
-            RangeIterator<K, D> head = ranges.poll();
+            ranges.poll();
 
-            if (head.getMaximum().compareTo(nextToken) >= 0)
+            if (!head.isEmpty() && head.getMaximum().compareTo(nextToken) >= 0)
             {
                 head.skipTo(nextToken);
                 changedRanges.add(head);

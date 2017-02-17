@@ -214,12 +214,12 @@ public class RangeUnionIteratorTest
         FileUtils.closeQuietly(tokens);
 
         RangeIterator emptyTokens = RangeUnionIterator.builder().build();
-        Assert.assertNull(emptyTokens);
+        Assert.assertTrue(emptyTokens.isEmpty());
 
         builder = RangeUnionIterator.builder();
         Assert.assertEquals(0L, builder.add((RangeIterator<Long, Token>) null).rangeCount());
         Assert.assertEquals(0L, builder.add((List<RangeIterator<Long, Token>>) null).getTokenCount());
-        Assert.assertEquals(0L, builder.add(new LongIterator(new long[] {})).rangeCount());
+        Assert.assertEquals(1L, builder.add(new LongIterator(new long[] {})).rangeCount());
 
         RangeIterator<Long, Token> single = new LongIterator(new long[] { 1L, 2L, 3L });
         RangeIterator<Long, Token> range = RangeIntersectionIterator.<Long, Token>builder().add(single).build();
