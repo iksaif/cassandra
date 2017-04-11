@@ -92,6 +92,9 @@ public class CompactionController implements AutoCloseable
         refreshOverlaps();
         if (NEVER_PURGE_TOMBSTONES)
             logger.warn("You are running with -Dcassandra.never_purge_tombstones=true, this is dangerous!");
+        if (ignoreOverlaps())
+            logger.warn("You are running with overlapping sstable sanity checks for tombstones disabled on {}:{}," +
+                    "this can lead to inconsistencies when running explicit deletions.", getKeyspace(), getTable());
     }
 
     public void maybeRefreshOverlaps()
@@ -129,7 +132,8 @@ public class CompactionController implements AutoCloseable
 
     public Set<SSTableReader> getFullyExpiredSSTables()
     {
-        return getFullyExpiredSSTables(cfs, compacting, overlappingSSTables, gcBefore);
+        Collection overlapping = ignoreOverlaps() ? Collections.emptySet() : overlappingSSTables;
+        return getFullyExpiredSSTables(cfs, compacting, overlapping, gcBefore);
     }
 
     /**
@@ -161,6 +165,9 @@ public class CompactionController implements AutoCloseable
         List<SSTableReader> candidates = new ArrayList<>();
 
         long minTimestamp = Long.MAX_VALUE;
+
+        if (cfStore.getCompactionStrategyManager().ignoreOverlaps())
+            overlapping = Collections.emptySet();
 
         for (SSTableReader sstable : overlapping)
         {
@@ -207,6 +214,8 @@ public class CompactionController implements AutoCloseable
     {
         return cfs.keyspace.getName();
     }
+
+    public String getTable() { return cfs.getTableName(); }
 
     public String getColumnFamily()
     {
@@ -280,6 +289,8 @@ public class CompactionController implements AutoCloseable
     {
         return tombstoneOption != TombstoneOption.NONE;
     }
+
+    boolean ignoreOverlaps() { return tombstoneOption == TombstoneOption.IGNORE_OVERLAPS; }
 
     // caller must close iterators
     public Iterable<UnfilteredRowIterator> shadowSources(DecoratedKey key, boolean tombstoneOnly)

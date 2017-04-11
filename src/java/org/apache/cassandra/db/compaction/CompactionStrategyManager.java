@@ -1065,6 +1065,11 @@ public class CompactionStrategyManager implements INotificationConsumer
         return Boolean.parseBoolean(params.options().get(AbstractCompactionStrategy.ONLY_PURGE_REPAIRED_TOMBSTONES));
     }
 
+    public boolean ignoreOverlaps()
+    {
+        return getCompactionParams().tombstoneOption() == CompactionParams.TombstoneOption.IGNORE_OVERLAPS;
+    }
+
     public SSTableMultiWriter createSSTableMultiWriter(Descriptor descriptor,
                                                        long keyCount,
                                                        long repairedAt,

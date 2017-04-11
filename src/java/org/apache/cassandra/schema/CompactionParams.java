@@ -59,7 +59,8 @@ public final class CompactionParams
     {
         NONE,
         ROW,
-        CELL;
+        CELL,
+        IGNORE_OVERLAPS,
     }
 
     public static final int DEFAULT_MIN_THRESHOLD = 4;
