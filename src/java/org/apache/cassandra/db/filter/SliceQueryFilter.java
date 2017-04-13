@@ -260,8 +260,28 @@ public class SliceQueryFilter implements IDiskAtomFilter
         columnCounter = columnCounter(container.getComparator(), now);
         DeletionInfo.InOrderTester tester = container.deletionInfo().inOrderTester(reversed);
 
-        while (reducedColumns.hasNext())
+        while (true)
         {
+            try {
+                if (!reducedColumns.hasNext())
+                    break;
+            }
+            catch (TombstoneOverwhelmingException e)
+            {
+                Tracing.trace("Scanned over {} tombstones; query aborted (see tombstone_failure_threshold)",
+                        DatabaseDescriptor.getTombstoneFailureThreshold());
+                String msg = String.format("Scanned over %d tombstones in %s.%s for key: %1.512s; query aborted (see tombstone_failure_threshold).",
+                        DatabaseDescriptor.getTombstoneFailureThreshold(),
+                        container.metadata().ksName,
+                        container.metadata().cfName,
+                        container.metadata().getKeyValidator().getString(key.getKey()));
+                logger.error(msg);
+                throw e;
+            }
+            catch (Exception e)
+            {
+                throw e;
+            }
             Cell cell = reducedColumns.next();
 
             if (logger.isTraceEnabled())

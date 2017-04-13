@@ -23,6 +23,10 @@ import java.util.Iterator;
 import java.util.List;
 import java.util.SortedSet;
 
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+
+import org.apache.cassandra.config.DatabaseDescriptor;
 import org.apache.cassandra.db.Cell;
 import org.apache.cassandra.db.ColumnFamily;
 import org.apache.cassandra.db.DecoratedKey;
@@ -34,10 +38,12 @@ import org.apache.cassandra.db.columniterator.OnDiskAtomIterator;
 import org.apache.cassandra.db.composites.CellName;
 import org.apache.cassandra.db.composites.Composite;
 import org.apache.cassandra.io.sstable.SSTableReader;
+import org.apache.cassandra.tracing.Tracing;
 import org.apache.cassandra.utils.MergeIterator;
 
 public class QueryFilter
 {
+    private static final Logger logger = LoggerFactory.getLogger(QueryFilter.class);
     public final DecoratedKey key;
     public final String cfName;
     public final IDiskAtomFilter filter;
@@ -147,6 +153,7 @@ public class QueryFilter
         return new Iterator<Cell>()
         {
             private Cell next;
+            private int tombstoneCount = 0;
 
             public boolean hasNext()
             {
@@ -181,6 +188,19 @@ public class QueryFilter
                     }
                     else
                     {
+                        tombstoneCount++;
+                        if (tombstoneCount > DatabaseDescriptor.getTombstoneFailureThreshold())
+                        {
+                            Tracing.trace("Scanned over {} tombstones; query aborted (see tombstone_failure_threshold)",
+                                    DatabaseDescriptor.getTombstoneFailureThreshold());
+                            String msg = String.format("Scanned over %d tombstones in %s.%s for key: %1.512s; query aborted (see tombstone_failure_threshold).",
+                                    DatabaseDescriptor.getTombstoneFailureThreshold(),
+                                    returnCF.metadata().ksName,
+                                    returnCF.metadata().cfName,
+                                    "unknown");
+                            logger.error(msg);
+                            throw new TombstoneOverwhelmingException();
+                        }
                         returnCF.addAtom(atom);
                     }
                 }
